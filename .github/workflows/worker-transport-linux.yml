@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 AuricTW
+# SPDX-License-Identifier: Apache-2.0
+# Provenance: Original one-off Long-WAM contributor validation.
+name: Long-WAM worker transport Linux validation
+
+on:
+  push:
+    branches: [validation/worker-transport-linux-20261028]
+
+permissions: {}
+
+jobs:
+  transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASELINE_SHA: cfa4e91eec59429d583326500bf5535c9ce6eec7
+      CANDIDATE_SHA: 3fe9f3937d0a25d1cc0e13c51a364ab79c78868b
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Check out the exact candidate and unmodified baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --depth=1 --no-checkout --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY.git" source
+          git -C source show "$GITHUB_SHA:.github/validation/run_worker_tests.py" > run_worker_tests.py
+          git -C source show "$GITHUB_SHA:.github/validation/stress_transport.py" > stress_transport.py
+          git -C source fetch --depth=1 origin "$CANDIDATE_SHA" "$BASELINE_SHA"
+          git -C source sparse-checkout init --cone
+          git -C source sparse-checkout set Long-WAM
+          git -C source checkout --detach "$CANDIDATE_SHA"
+          git -C source worktree add --detach ../baseline "$BASELINE_SHA"
+      - name: Install the project with CPU-only PyTorch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3.12 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install 'torch==2.7.1+cpu' 'torchvision==0.22.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          .venv/bin/python -m pip install -e 'source/Long-WAM[test]' 'pytest==8.4.2' 'pytest-timeout==2.4.0'
+      - name: Verify baseline failures, candidate tests and gated process stress
+        shell: bash
+        run: .venv/bin/python run_worker_tests.py
+      - name: Preserve the complete validation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: longwam-worker-linux-evidence
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
