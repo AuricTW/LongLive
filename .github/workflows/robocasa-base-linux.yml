@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 AuricTW
+# SPDX-License-Identifier: Apache-2.0
+# Provenance: Original one-off Long-WAM contributor validation.
+name: Long-WAM RoboCasa clean Linux validation
+
+on:
+  push:
+    branches: [validation/robocasa-base-linux-20261030]
+
+permissions: {}
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [base, train]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASELINE_SHA: 242635807b4ebb89fa2609a84df7eacde6aed92f
+      CANDIDATE_SHA: 758ef69b697acc53aed2bae1b98847e9b9c42719
+      VALIDATION_MODE: ${{ matrix.mode }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      GIT_LFS_SKIP_SMUDGE: '1'
+    steps:
+      - name: Check out candidate and baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --depth=1 --no-checkout --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY.git" source
+          git -C source show "$GITHUB_SHA:.github/validation/robocasa_base.py" > robocasa_base.py
+          git -C source fetch --depth=1 origin "$CANDIDATE_SHA" "$BASELINE_SHA"
+          git -C source sparse-checkout init --cone
+          git -C source sparse-checkout set Long-WAM
+          git -C source checkout --detach "$CANDIDATE_SHA"
+          git -C source worktree add --detach ../baseline "$BASELINE_SHA"
+      - name: Install into a fresh isolated environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3.12 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install 'torch==2.7.1+cpu' 'torchvision==0.22.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          if [[ "$VALIDATION_MODE" == base ]]; then
+            .venv/bin/python -m pip install -e 'source/Long-WAM[test]' 'pytest==8.4.2' 'pytest-timeout==2.4.0'
+          else
+            .venv/bin/python -m pip install -e 'source/Long-WAM[train,test]' 'pytest==8.4.2' 'pytest-timeout==2.4.0'
+          fi
+      - name: Verify baseline and candidate
+        shell: bash
+        run: .venv/bin/python robocasa_base.py
+      - name: Preserve logs and reproducible evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: longwam-robocasa-linux-${{ matrix.mode }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
