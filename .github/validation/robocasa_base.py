@@ -107,7 +107,7 @@ def main():
         before = pytest_run("baseline-new-tests", BASELINE, [str(test_path)], (1,))
         assert Counter(before.values()) == {"failure": 4}, before
         baseline_log = (EVIDENCE / "baseline-new-tests.log").read_text()
-        assert "No module named" in baseline_log and "datasets" in baseline_log and "git" in baseline_log
+        assert "ModuleNotFoundError" in baseline_log and "datasets" in baseline_log and "git" in baseline_log
         after = pytest_run("candidate-base-tests", SOURCE, [
             "tests/test_robocasa_base_install.py", "tests/test_dependency_contract.py",
         ])
